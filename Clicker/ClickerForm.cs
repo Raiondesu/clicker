@@ -5,20 +5,24 @@ namespace Clicker
 {
     public partial class ClickerForm : Form
     {
-        static Thread ClickThread = new Thread(ClickerProcess);
-        globalKeyboardHook gkh = new globalKeyboardHook();
+        static Thread ClickThread = new(ClickerProcess);
 
-        Keys ExecKey, ClickKey, ExitKey;
+        static bool on = false, isMouseDown = false, stopClickingOnMouseMove = true;
+        static int clickPause = 4, cursorDelta = 2;
 
-        KeysConverter regKey = new KeysConverter();
-
-        static string Adress = "Software\\InsaneClicker";
-        RegistryKey reg = Registry.CurrentUser.CreateSubKey(Adress);
+        static readonly string Adress = "Software\\InsaneClicker";
+        static Point curPos;
 
         private Point mouseOffset;
-        static bool on = false, isMouseDown = false;
+
+        globalKeyboardHook gkh = new();
+
+        Keys ExecKey, ClickKey, ExitKey;
+        readonly KeysConverter keysConverter = new();
+
+        RegistryKey reg = Registry.CurrentUser.CreateSubKey(Adress);
+
         bool shouldClick = false, shouldExit = false;
-        static Point curPos = new Point();
 
         [STAThread]
         static void Main(string[] args)
@@ -52,10 +56,19 @@ namespace Clicker
                 while (on)
                 {
                     curPos = Cursor.Position;
-                    mouse_event(MouseFlags.LeftDown | MouseFlags.LeftUp, Cursor.Position.X, Cursor.Position.Y, 0, UIntPtr.Zero);
-                    System.Threading.Thread.Sleep(4);
-                    if (Cursor.Position != curPos)
-                        if (Math.Abs(Cursor.Position.X - curPos.X) > 2 || Math.Abs(Cursor.Position.Y - curPos.Y) > 2)
+                    mouse_event(
+                        MouseFlags.LeftDown | MouseFlags.LeftUp,
+                        Cursor.Position.X,
+                        Cursor.Position.Y,
+                        0,
+                        UIntPtr.Zero
+                    );
+
+                    Thread.Sleep(clickPause);
+
+                    if (Cursor.Position != curPos && stopClickingOnMouseMove)
+                        if (Math.Abs(Cursor.Position.X - curPos.X) > cursorDelta
+                            || Math.Abs(Cursor.Position.Y - curPos.Y) > cursorDelta)
                         {
                             on = false;
                         }
@@ -72,21 +85,13 @@ namespace Clicker
         {
             if (reg != null)
             {
-                try
-                {
-                    ExecKey = (Keys)regKey.ConvertFromString((string)reg.GetValue("ExecKey"));
-                }
-                catch { ExecKey = Keys.Home; }
-                try
-                {
-                    ClickKey = (Keys)regKey.ConvertFromString((string)reg.GetValue("ClickKey"));
-                }
-                catch { ClickKey = Keys.Insert; }
-                try
-                {
-                    ExitKey = (Keys)regKey.ConvertFromString((string)reg.GetValue("ExitKey"));
-                }
-                catch { ExitKey = Keys.Delete; }
+                ExecKey = (Keys)keysConverter.ConvertFrom(reg.GetValue("ExecKey", Keys.Home));
+                ClickKey = (Keys)keysConverter.ConvertFrom(reg.GetValue("ClickKey", Keys.End));
+                ExitKey = (Keys)keysConverter.ConvertFrom(reg.GetValue("ExitKey", Keys.Escape));
+
+                this.stopClickingCheckBox.Checked = bool.Parse(reg.GetValue("StopMouse", true).ToString());
+                this.numericUpDownDelta.Value = (decimal)(cursorDelta = int.Parse(reg.GetValue("CursorDelta", cursorDelta).ToString()));
+                this.numericUpDownPauseMS.Value = (decimal)(clickPause = int.Parse(reg.GetValue("ClickPause", clickPause).ToString()));
             }
             ExecKeyBox.Text = ExecKey.ToString();
             ClickKeyBox.Text = ClickKey.ToString();
@@ -99,7 +104,7 @@ namespace Clicker
             gkh.KeyUp += gkh_KeyUp;
         }
 
-        void gkh_KeyDown(object sender, KeyEventArgs e)
+        void gkh_KeyDown(object? sender, KeyEventArgs e)
         {
             if (e.KeyCode == ClickKey)
             {
@@ -133,7 +138,7 @@ namespace Clicker
             }
         }
 
-        void gkh_KeyUp(object sender, KeyEventArgs e)
+        void gkh_KeyUp(object? sender, KeyEventArgs e)
         {
             if (e.KeyCode == ClickKey)
             {
@@ -159,12 +164,12 @@ namespace Clicker
             }
         }
 
-        private void CloseButt_Click(object sender, EventArgs e)
+        private void CloseButt_Click(object? sender, EventArgs e)
         {
             this.Dispose(true);
         }
 
-        private void ClickerForm_FormClosing(object sender, FormClosingEventArgs e)
+        private void ClickerForm_FormClosing(object? sender, FormClosingEventArgs e)
         {
             ClickThread?.Interrupt();
 
@@ -177,7 +182,7 @@ namespace Clicker
             reg.Close();
         }
 
-        private void ExecKeyBox_KeyDown(object sender, KeyEventArgs e)
+        private void ExecKeyBox_KeyDown(object? sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
             if (e.KeyCode != ClickKey && e.KeyCode != ExitKey)
@@ -191,7 +196,25 @@ namespace Clicker
             e.Handled = true;
         }
 
-        private void ClickKeyBox_KeyDown(object sender, KeyEventArgs e)
+        private void StopClickingCheckBox_CheckedChanged(object sender, EventArgs e)
+        {
+            stopClickingOnMouseMove = this.stopClickingCheckBox.Checked;
+            reg.SetValue("StopMouse", stopClickingOnMouseMove.ToString());
+        }
+
+        private void NumericUpDownDelta_ValueChanged(object sender, EventArgs e)
+        {
+            cursorDelta = (int)this.numericUpDownDelta.Value;
+            reg.SetValue("CursorDelta", cursorDelta.ToString());
+        }
+
+        private void NumericUpDownPause_ValueChanged(object sender, EventArgs e)
+        {
+            clickPause = (int)this.numericUpDownPauseMS.Value;
+            reg.SetValue("ClickPause", clickPause.ToString());
+        }
+
+        private void ClickKeyBox_KeyDown(object? sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
             if (e.KeyCode != ExecKey && e.KeyCode != ExitKey)
@@ -205,7 +228,7 @@ namespace Clicker
             e.Handled = true;
         }
 
-        private void ExitKeyBox_KeyDown(object sender, KeyEventArgs e)
+        private void ExitKeyBox_KeyDown(object? sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
             if (e.KeyCode != ClickKey && e.KeyCode != ExecKey)
@@ -219,7 +242,7 @@ namespace Clicker
             e.Handled = true;
         }
 
-        private void ClickerAppMenu_MouseDown(object sender, MouseEventArgs e)
+        private void ClickerAppMenu_MouseDown(object? sender, MouseEventArgs e)
         {
             int xOffset;
             int yOffset;
@@ -233,7 +256,7 @@ namespace Clicker
             }
         }
 
-        private void ClickerAppMenu_MouseMove(object sender, MouseEventArgs e)
+        private void ClickerAppMenu_MouseMove(object? sender, MouseEventArgs e)
         {
             if (isMouseDown)
             {
